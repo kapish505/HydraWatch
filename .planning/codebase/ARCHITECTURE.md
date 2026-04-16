@@ -1,80 +1,23 @@
-# Architecture
+# System Architecture
 
-## System Pattern
-**Monolithic FastAPI backend + React SPA frontend** with a 3-model ML ensemble.
+HydraWatch is a full-stack, ML-driven application composed of a FastAPI backend and a React single-page frontend.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     React SPA (Vite)                     │
-│  ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐  │
-│  │ Network  │ │  Sensor   │ │  Alert   │ │   SHAP   │  │
-│  │  Graph   │ │  Chart    │ │  Panel   │ │Waterfall │  │
-│  │  (D3.js) │ │(Chart.js) │ │          │ │          │  │
-│  └────┬─────┘ └─────┬─────┘ └────┬─────┘ └────┬─────┘  │
-│       └──────────────┴───────────┴─────────────┘        │
-│                WebSocket + REST (fetch)                   │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-┌─────────────────────────┴───────────────────────────────┐
-│                 FastAPI Backend (main.py)                 │
-│                                                          │
-│  ┌─ Routers ──────────────────────────────────────────┐  │
-│  │ auth.py   users.py   admin.py                      │  │
-│  │ (JWT)     (profile)  (user mgmt)                   │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│  ┌─ Core API Routes ─────────────────────────────────┐   │
-│  │ GET /network    POST /ingest    GET /alerts       │   │
-│  │ WS  /ws/stream  WS   /ws/live   GET /metrics     │   │
-│  │ GET /replay/start               GET /api/scenarios│   │
-│  └───────────────────────────┬───────────────────────┘   │
-│                              │                           │
-│  ┌─ Ensemble (ensemble.py) ──┴───────────────────────┐   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │   │
-│  │  │   LSTM   │  │ XGBoost  │  │     GAT      │    │   │
-│  │  │Autoencod.│  │ +SHAP    │  │  Localiser   │    │   │
-│  │  │(lstm_ae) │  │(xgboost) │  │   (gat.py)   │    │   │
-│  │  └──────────┘  └──────────┘  └──────────────┘    │   │
-│  └───────────────────────────────────────────────────┘   │
-│                                                          │
-│  ┌─ Data Layer ──────────────────────────────────────┐   │
-│  │ loader.py   features.py   simulator.py            │   │
-│  │ (LeakDB +   (10 features  (BattLeDIM              │   │
-│  │  BattLeDIM)  per node)     replay)                │   │
-│  └───────────────────┬───────────────────────────────┘   │
-│                      │                                   │
-│  ┌─ Storage ─────────┴───────────────────────────────┐   │
-│  │ db.py (SQLite: alerts, users, activity_logs)      │   │
-│  │ network.py (WNTR → JSON graph)                    │   │
-│  └───────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
-```
+**1. Machine Learning Ensemble**
+The application evaluates telemetry anomaly detection passing through an asynchronous `IngestBuffer` using a three-tier model ensemble (`models/ensemble.py`):
+1. **LSTM Autoencoder**: Identifies temporal pattern anomalies via reconstruction loss (`models/lstm_ae.py`).
+2. **XGBoost Classifier**: Analyzes 10-feature engineered representations to emit leak probabilities and TreeSHAP visual reasoning strings.
+3. **Graph Attention Network (GAT)**: Computes spatial probability topologies using hydraulic network edge graphs (`models/gat.py`).
 
-## Data Flow
+Final alerts are generated only when these signals find consensus.
 
-### Inference Path (Real-time)
-1. Sensor data arrives via `POST /ingest` or WebSocket replay
-2. Feature engineering builds 3 model inputs simultaneously:
-   - LSTM: sliding window `(1, 24, N_sensors)` → anomaly score
-   - XGBoost: `(1, N*10)` engineered features → probability + SHAP
-   - GAT: `(N, 3)` node features → per-node probability map
-3. Ensemble checks triple agreement (LSTM > 0.85, XGB > 0.4, node overlap)
-4. If alert fires → stored in SQLite, pushed to all WebSocket clients
+**2. Backend Web Architecture (FastAPI)**
+- `main.py` establishes the `lifespan` hook. Loads trained checkpoints (`.pt`, ONNX bindings).
+- Manages an ephemerally cached (deque-based) `IngestBuffer` with a 48-step rolling window to ingest telemetry blocks and re-evaluate live rolling standards (std dev, mean variance).
+- Uses `async` threads to push state chunks through WebSockets (`/ws/live` and `/ws/stream`).
+- Provides a SQLite adapter (`backend/db.py`) for user registration, authenticating JWT tokens, and logging generated detection events.
 
-### Training Path (Offline)
-1. `scripts/train.py` loads all 500 LeakDB scenarios
-2. Splits 80/20 by scenario ID (400 train / 100 val)
-3. Trains XGBoost → LSTM → GAT sequentially
-4. Saves `.pt`, `.pkl`, `.onnx` models to `models/`
-
-## Authentication Middleware
-- JWT-based via `backend/auth.py`
-- `get_current_user()` dependency extracts token from `Authorization: Bearer` header
-- Core ML routes (`/network`, `/ingest`, `/alerts`, `/ws/*`) are **not** behind auth
-- User management routes (`/api/users/*`, `/api/admin/*`) require auth
-
-## Entry Points
-- **Backend:** `uvicorn backend.main:app --port 8000`
-- **Frontend dev:** `cd frontend && npm run dev` (Vite dev server)
-- **Training:** `python scripts/train.py`
-- **Evaluation:** `python scripts/evaluate.py`
+**3. Frontend Architecture (React + Vite)**
+- Adheres to the "Lunar Observatory" aesthetic using dark backgrounds, neon accents, and `framer-motion` for spatial transitions.
+- Evaluates real-time WebSocket streams in `Dashboard.jsx`.
+- Plots complex SVG nodal pressure structures using `D3.js` inside `NetworkGraph.jsx`, binding SHAP features and prediction states visually to the edges and nodes.
+- Maps API URLs dynamically using `config.js` (`VITE_API_URL`, `VITE_WS_URL`).
