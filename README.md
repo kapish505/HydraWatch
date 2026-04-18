@@ -71,3 +71,43 @@ Open `http://localhost:5173`.
 1. Select a dataset trace directly from the **Simulation Target** dropdown.
 2. Hit **Start** to initiate the websocket.
 3. Use the **Polling Speed** slider to fast-forward through days of baseline data until the ensemble physically triggers and isolates the rupture!
+
+---
+
+## 🛠️ Data Acquisition & Model Retraining
+
+HydraWatch is optimized for the **Hanoi_CMH** subset of LeakDB. If you wish to retrain the models or explore new scenarios, follow these steps:
+
+### 1. Data Download
+The repository includes a helper script to fetch the benchmark data directly from the official repository.
+```bash
+python scripts/download_data.py
+```
+This will download the `Hanoi_CMH.zip` file into the `data/` directory.
+
+### 2. Extraction & Preprocessing
+Once downloaded, extract the scenario files into the directory structure expected by the loader:
+```bash
+python scripts/extract_leakdb.py
+```
+This script will organize the raw `.csv` and `.inp` files into `data/raw/leakdb/LeakDB/Hanoi_CMH/`, which the backend uses for the live simulation.
+
+### 3. Retraining the Ensemble
+If you modify the feature engineering in `backend/data/features.py` or the model architectures, you can trigger a full retraining cycle:
+
+```bash
+# On Mac (MPS acceleration)
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+python scripts/train.py
+
+# On Windows/Linux (CPU/CUDA)
+python scripts/train.py
+```
+
+The script will:
+- Generate 13-feature tensors for all 500 scenarios.
+- Train the **XGBoost** forests and save to `models/xgboost_model.json`.
+- Train the **LSTM Autoencoder** to learn "Normal" network behavior.
+- Execute a **GAT (Graph Attention Network)** training loop to optimize spatial localization.
+- Update `models/model_info.json` with the new performance thresholds.
+
